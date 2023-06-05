@@ -1,0 +1,155 @@
+//Default BaudRate for HC-05 = 9600
+
+unsigned char RxBuffer; //Received byte storage
+unsigned char RxFlag; //Debug line
+unsigned int angle; //Servo motor control
+unsigned char ServoEN;
+
+void Servo_init();
+void USART_init();
+void PWM_init();
+
+//temp delay
+void SecDel();
+unsigned char x;
+unsigned int y;
+unsigned char tmp;
+
+void interrupt(){
+      if(PIR1&20) // Receive flag raised
+     {             RxBuffer = RCREG;  // Read received data (byte)
+                   //PORTD = ~PORTD; //Debug line
+                   //RxFlag = 0xFF; //Debug line
+
+            PIR1 = PIR1&0XDF; // Clear receive flag
+      }
+      //////////////////////////////////////////////////////
+      if(PIR1&0x04) // CCP1 interrupt
+      {
+       if(CCP1CON&0x01){
+       //Falling edge
+        CCP1CON = 0x08; //next will be rising edge
+        TMR1H = 0;
+        TMR1L = 0;
+        CCPR1H= (40000 - angle) >>8;
+        CCPR1L= (40000 - angle);
+
+       }
+       else{
+        CCP1CON = 0x09;
+        TMR1H = 0;
+        TMR1L = 0;
+        CCPR1H= angle >>8;
+        CCPR1L= angle;
+       }
+     
+      PIR1=PIR1&0xFB; // Clear CCP1 flag
+      }
+}
+
+
+void main() {
+
+   USART_init();
+   TRISD = 0x00;
+   TRISB = 0x01;
+
+   PORTB = 0x00;
+   PORTD = 0x00;
+   RxFlag = 0x00;
+   tmp = 0x00;
+   ServoEN = 0;
+   //////////////////////////////////////////////////////
+   Servo_init();
+   PWM_init();
+   while(1){
+    angle = 4000;
+
+   if(RxBuffer == 0x30) //Stop All
+   {
+    PORTD = 0x00;
+    PORTB = 0x00;
+    ServoEN = 0;
+   }
+   
+    if(RxBuffer == 0x31) //FWD
+   {
+    PORTD = 0x0A;
+   }
+   
+   if(RxBuffer == 0x32) //BCK
+   {
+    PORTD = 0x05;
+   }
+
+     if(RxBuffer == 0x33) //Right
+   {
+    PORTD = 0x08;
+   }
+   
+   if(RxBuffer == 0x34) //Left
+   {
+    PORTD = 0x02;
+   }
+   
+   if(RxBuffer == 0x35) //FIRING DC ON
+   {
+    PORTB = 0x02; //use PORTB for second H-Bridge
+    ServoEN = 1;
+   }
+   
+   if(RxBuffer == 0x36 && ServoEN == 1) //Servo Fire
+   {
+     angle = 2250;
+     SecDel();
+     angle = 4000;
+     SecDel();
+
+   }
+   
+    RxBuffer = 0x00;
+   
+    CCPR2L= 125;
+   }
+
+
+}
+
+void Servo_init(){
+// Using CCP1 (RC2) and TMR1 as it is 16 bits
+// Period is 40k counts * 0.5 us = 20ms
+// INTCON initialized elsewhere
+// Servo will only move 90 degrees then back to original pos. (3500 - 2250)
+
+     PIE1=PIE1|0x04; // CCP interrupt enabled
+     T1CON = 0x01; //Enable TMR1, and internal Fosc/4
+     CCP1CON = 0x08; //Compare mode, Flag is set HIGH on match
+     
+     TMR1H = 0;
+     TMR1L = 0;
+     CCPR1H=4000>>8; //Original pos.
+     CCPR1L=4000;
+     angle = 4000;
+}
+
+void USART_init(){
+    TRISC = 0x80; //was 0xC0**
+    TXSTA=0x24;            // Enable 8-bit Transmitter in Asynchronous Mode
+    RCSTA=0x90;            // Enable Serial Port and 8-bit continuous receive
+    SPBRG = 51;            // High Speed 9600 Baud Rate with Fosc = 8Mghz
+    PIE1=PIE1|0X20;        // Enable Receive Interrupt
+    INTCON=INTCON|0xC0;    // Enable GIE and PIE
+}
+
+void PWM_init(){
+  T2CON = 0x07;//enable Timer2 at Fosc/4 with 1:16 prescaler (8 uS percount 2000uS to count 250 counts)
+  CCP2CON = 0x0C;//enable PWM for CCP2
+  PR2 = 250;// 250 counts =8uS *250 =2ms period
+  CCPR2L= 125;
+}
+
+void SecDel(){  //delay for testing
+    for(x = 0; x < 50; x++)
+    for(y = 0; y < 1000; y++)
+    x = x;
+}
